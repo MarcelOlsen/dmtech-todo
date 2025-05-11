@@ -8,6 +8,7 @@ A modern desktop Todo application built with Kotlin and Jetpack Compose.
 - 🔄 Track task status (New, In Progress, Done)
 - 🗑️ Soft-delete management with restore capability
 - 📱 Pleasant and responsive user interface
+- 🔄 Task filtering by status (New, In Progress, Done, Deleted)
 
 ## Technologies Used
 
