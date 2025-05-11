@@ -13,11 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +26,7 @@ import com.example.todo.model.TodoItem
 import com.example.todo.model.TodoState
 import com.example.todo.ui.components.*
 import com.example.todo.ui.theme.DeletedTaskColor
+import com.example.todo.viewmodel.TodoFilter
 import com.example.todo.viewmodel.TodoViewModel
 
 /**
@@ -42,7 +39,8 @@ fun TodoApp(viewModel: TodoViewModel) {
     var editingTodoItem by remember { mutableStateOf<TodoItem?>(null) }
     
     // Filter state
-    var showCompletedTasks by remember { mutableStateOf(true) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    val currentFilter by viewModel.currentFilter.collectAsState()
     
     // State for the recently deleted section
     var isDeletedSectionExpanded by remember { mutableStateOf(false) }
@@ -59,19 +57,7 @@ fun TodoApp(viewModel: TodoViewModel) {
     val inProgressTodos by viewModel.inProgressTodos.collectAsState()
     val doneTodos by viewModel.doneTodos.collectAsState()
     val deletedTodos by viewModel.deletedTodos.collectAsState()
-    
-    // Filter visible todos based on user preference with derived state
-    val allVisibleTodos by remember(newTodos, inProgressTodos, doneTodos, showCompletedTasks) {
-        derivedStateOf {
-            val activeTodos = (newTodos + inProgressTodos)
-            val displayTodos = if (showCompletedTasks) {
-                activeTodos + doneTodos
-            } else {
-                activeTodos
-            }
-            displayTodos.sortedByDescending { it.updatedAt }
-        }
-    }
+    val filteredTodos by viewModel.filteredTodos.collectAsState()
     
     // Constants for drawer calculations
     val taskCardHeight = 95.dp // Increased task card height for better visibility
@@ -107,6 +93,63 @@ fun TodoApp(viewModel: TodoViewModel) {
             // The EditTodoDialog will be displayed when editingTodoItem is not null
         }
     }
+
+    // Filter dialog
+    if (showFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showFilterDialog = false },
+            title = { Text("Filter Tasks") },
+            text = {
+                Column {
+                    FilterOption(
+                        text = "All Tasks",
+                        selected = currentFilter == TodoFilter.ALL,
+                        onClick = { 
+                            viewModel.setFilter(TodoFilter.ALL)
+                            showFilterDialog = false
+                        }
+                    )
+                    FilterOption(
+                        text = "New Tasks",
+                        selected = currentFilter == TodoFilter.NEW,
+                        onClick = { 
+                            viewModel.setFilter(TodoFilter.NEW)
+                            showFilterDialog = false
+                        }
+                    )
+                    FilterOption(
+                        text = "In Progress",
+                        selected = currentFilter == TodoFilter.IN_PROGRESS,
+                        onClick = { 
+                            viewModel.setFilter(TodoFilter.IN_PROGRESS)
+                            showFilterDialog = false
+                        }
+                    )
+                    FilterOption(
+                        text = "Completed",
+                        selected = currentFilter == TodoFilter.DONE,
+                        onClick = { 
+                            viewModel.setFilter(TodoFilter.DONE)
+                            showFilterDialog = false
+                        }
+                    )
+                    FilterOption(
+                        text = "Deleted",
+                        selected = currentFilter == TodoFilter.DELETED,
+                        onClick = { 
+                            viewModel.setFilter(TodoFilter.DELETED)
+                            showFilterDialog = false
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFilterDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
     
     Scaffold(
         topBar = {
@@ -120,26 +163,28 @@ fun TodoApp(viewModel: TodoViewModel) {
                 backgroundColor = MaterialTheme.colors.surface,
                 elevation = 0.dp,
                 actions = {
-                    // Toggle filter for completed tasks with better visual feedback
+                    // Filter button with badge showing current filter
                     IconButton(
-                        onClick = { showCompletedTasks = !showCompletedTasks },
+                        onClick = { showFilterDialog = true },
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        Badge(
-                            backgroundColor = if (showCompletedTasks) MaterialTheme.colors.primary else Color.Gray,
-                            modifier = Modifier
-                                .padding(top = 4.dp, end = 4.dp)
-                                .size(8.dp)
-                        ) { }
-                        
-                        Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Toggle Completed Tasks",
-                            tint = if (showCompletedTasks) 
-                                MaterialTheme.colors.primary 
-                            else 
-                                MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                        )
+                        Box {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = "Filter Tasks",
+                                tint = MaterialTheme.colors.primary
+                            )
+                            // Show a badge dot indicating active filter
+                            if (currentFilter != TodoFilter.ALL) {
+                                Badge(
+                                    backgroundColor = MaterialTheme.colors.primary,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 4.dp, end = 4.dp)
+                                        .size(8.dp)
+                                ) {}
+                            }
+                        }
                     }
                 }
             )
@@ -172,7 +217,7 @@ fun TodoApp(viewModel: TodoViewModel) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (allVisibleTodos.isEmpty() && deletedTodos.isEmpty()) {
+            if (filteredTodos.isEmpty() && currentFilter != TodoFilter.DELETED) {
                 // Empty state with nicer visuals
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -197,7 +242,7 @@ fun TodoApp(viewModel: TodoViewModel) {
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Text(
-                        text = "No tasks yet",
+                        text = getEmptyMessageForFilter(currentFilter),
                         style = MaterialTheme.typography.h6,
                         color = MaterialTheme.colors.onSurface
                     )
@@ -205,7 +250,7 @@ fun TodoApp(viewModel: TodoViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Text(
-                        text = "Tap + to add your first task",
+                        text = if (currentFilter == TodoFilter.ALL) "Tap + to add your first task" else "",
                         style = MaterialTheme.typography.body1,
                         color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
                     )
@@ -220,12 +265,52 @@ fun TodoApp(viewModel: TodoViewModel) {
                             .fillMaxSize()
                             .padding(top = 8.dp)
                     ) {
+                        // Show current filter chip
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Showing: ",
+                                style = MaterialTheme.typography.subtitle2,
+                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = MaterialTheme.colors.primary.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.clickable { showFilterDialog = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = getFilterName(currentFilter),
+                                        style = MaterialTheme.typography.body2,
+                                        color = MaterialTheme.colors.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Change Filter",
+                                        tint = MaterialTheme.colors.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                        
                         // Task counters with improved visuals
                         TaskCounters(
                             newCount = newTodos.size,
                             inProgressCount = inProgressTodos.size,
                             completedCount = doneTodos.size,
-                            showCompleted = showCompletedTasks
+                            deletedCount = deletedTodos.size,
+                            currentFilter = currentFilter,
+                            onFilterChange = { viewModel.setFilter(it) }
                         )
                         
                         Divider(
@@ -239,22 +324,24 @@ fun TodoApp(viewModel: TodoViewModel) {
                                 .weight(1f)
                                 .fillMaxWidth()
                         ) {
-                            // Display all visible todos in a single list
+                            // Display filtered todos in the list
                             TodoList(
                                 title = "",
-                                todos = allVisibleTodos,
+                                todos = filteredTodos,
                                 emptyText = "",
                                 onStartClick = { viewModel.startTodo(it) },
                                 onCompleteClick = { viewModel.completeTodo(it) },
                                 onDeleteClick = { viewModel.deleteTodo(it) },
+                                onRestoreClick = { viewModel.restoreTodo(it) },
                                 onEditClick = { id ->
-                                    editingTodoItem = allVisibleTodos.find { it.id == id }
-                                }
+                                    editingTodoItem = filteredTodos.find { it.id == id }
+                                },
+                                isInDeletedSection = currentFilter == TodoFilter.DELETED
                             )
                         }
                         
-                        // Trash section at the bottom
-                        if (deletedTodos.isNotEmpty()) {
+                        // Trash section at the bottom - only show when not already filtering by deleted
+                        if (deletedTodos.isNotEmpty() && currentFilter != TodoFilter.DELETED) {
                             // Collapsible trash section with animation
                             Surface(
                                 color = DeletedTaskColor,
@@ -394,6 +481,31 @@ fun TodoApp(viewModel: TodoViewModel) {
     }
 }
 
+@Composable
+private fun FilterOption(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = MaterialTheme.colors.primary
+            )
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = text)
+    }
+}
+
 /**
  * Task counter component extracted for better readability
  */
@@ -402,7 +514,9 @@ private fun TaskCounters(
     newCount: Int,
     inProgressCount: Int,
     completedCount: Int,
-    showCompleted: Boolean
+    deletedCount: Int,
+    currentFilter: TodoFilter,
+    onFilterChange: (TodoFilter) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -412,57 +526,89 @@ private fun TaskCounters(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // New tasks counter
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { onFilterChange(TodoFilter.NEW) }
+        ) {
             Box(
                 modifier = Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colors.primary)
+                    .background(if (currentFilter == TodoFilter.NEW) MaterialTheme.colors.primary else MaterialTheme.colors.primary.copy(alpha = 0.6f))
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "New ($newCount)",
                 style = MaterialTheme.typography.caption,
-                fontWeight = FontWeight.Medium
+                fontWeight = if (currentFilter == TodoFilter.NEW) FontWeight.Bold else FontWeight.Medium,
+                color = if (currentFilter == TodoFilter.NEW) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface
             )
         }
         
         Spacer(modifier = Modifier.width(16.dp))
         
         // In progress counter
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { onFilterChange(TodoFilter.IN_PROGRESS) }
+        ) {
             Box(
                 modifier = Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colors.secondary)
+                    .background(if (currentFilter == TodoFilter.IN_PROGRESS) MaterialTheme.colors.secondary else MaterialTheme.colors.secondary.copy(alpha = 0.6f))
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "In Progress ($inProgressCount)",
                 style = MaterialTheme.typography.caption,
-                fontWeight = FontWeight.Medium
+                fontWeight = if (currentFilter == TodoFilter.IN_PROGRESS) FontWeight.Bold else FontWeight.Medium,
+                color = if (currentFilter == TodoFilter.IN_PROGRESS) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurface
             )
         }
         
-        // Only show completed counter if it's visible
-        if (showCompleted) {
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF757575))
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Completed ($completedCount)",
-                    style = MaterialTheme.typography.caption,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        // Completed counter
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { onFilterChange(TodoFilter.DONE) }
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (currentFilter == TodoFilter.DONE) Color(0xFF757575) else Color(0xFF757575).copy(alpha = 0.6f))
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Completed ($completedCount)",
+                style = MaterialTheme.typography.caption,
+                fontWeight = if (currentFilter == TodoFilter.DONE) FontWeight.Bold else FontWeight.Medium,
+                color = if (currentFilter == TodoFilter.DONE) Color(0xFF757575) else MaterialTheme.colors.onSurface
+            )
         }
+    }
+}
+
+// Helper function to get filter display name
+private fun getFilterName(filter: TodoFilter): String {
+    return when (filter) {
+        TodoFilter.ALL -> "All Tasks"
+        TodoFilter.NEW -> "New Tasks"
+        TodoFilter.IN_PROGRESS -> "In Progress"
+        TodoFilter.DONE -> "Completed"
+        TodoFilter.DELETED -> "Deleted"
+    }
+}
+
+// Helper function to get empty state message based on current filter
+private fun getEmptyMessageForFilter(filter: TodoFilter): String {
+    return when (filter) {
+        TodoFilter.ALL -> "No tasks yet"
+        TodoFilter.NEW -> "No new tasks"
+        TodoFilter.IN_PROGRESS -> "No tasks in progress"
+        TodoFilter.DONE -> "No completed tasks"
+        TodoFilter.DELETED -> "No deleted tasks"
     }
 } 

@@ -10,10 +10,23 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+// Define a set of filter options
+enum class TodoFilter {
+    ALL,
+    NEW,
+    IN_PROGRESS,
+    DONE,
+    DELETED
+}
+
 class TodoViewModel(
     private val repository: TodoRepository = InMemoryTodoRepository(),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) {
+    // Current filter setting
+    private val _currentFilter = MutableStateFlow(TodoFilter.ALL)
+    val currentFilter: StateFlow<TodoFilter> = _currentFilter
+
     // Expose flows for each type of todo based on state
     val newTodos: StateFlow<List<TodoItem>> = repository.getTodosByState(TodoState.NEW)
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
@@ -35,6 +48,28 @@ class TodoViewModel(
     ) { new, inProgress, done ->
         new + inProgress + done
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    
+    // Filtered todos based on current filter
+    val filteredTodos: StateFlow<List<TodoItem>> = combine(
+        currentFilter,
+        newTodos,
+        inProgressTodos,
+        doneTodos,
+        deletedTodos
+    ) { filter, new, inProgress, done, deleted ->
+        when (filter) {
+            TodoFilter.ALL -> new + inProgress + done
+            TodoFilter.NEW -> new
+            TodoFilter.IN_PROGRESS -> inProgress
+            TodoFilter.DONE -> done
+            TodoFilter.DELETED -> deleted
+        }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    // Set the current filter
+    fun setFilter(filter: TodoFilter) {
+        _currentFilter.value = filter
+    }
 
     fun addTodo(title: String, description: String = "") {
         if (title.isBlank()) return
